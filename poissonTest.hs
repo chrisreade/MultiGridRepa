@@ -11,7 +11,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans          #-}
 
 
-import Data.Array.Repa				    as R
+import Data.Array.Repa as R
 
 import MultiGrid_Poisson
 
@@ -19,14 +19,14 @@ import Data.Array.Repa.IO.Timing
 import System.Environment
 import Data.Array.Repa.Algorithms.Pixel
 import Data.Array.Repa.Algorithms.ColorRamp
-import Data.Array.Repa.IO.BMP	
+import Data.Array.Repa.IO.BMP
 
 
 main :: IO ()
-main 
+main
  = do	args	<- getArgs
 	case args of
-	  [stackSize,filename]	
+	  [stackSize,filename]
 	    -> 	poissonTest (read stackSize) filename
 
 	  _ -> do
@@ -45,9 +45,9 @@ usage	= unlines
 
 
 {- Example from p162 Iserles "A First Course in Numerical Analysis of Differential Equations"
-   Values for poisson equation 
-    
-    >>>> Au = -f <<<< 
+   Values for poisson equation
+
+    >>>> Au = -f <<<<
 
    u and f defined on the unit square (u is unknown)
 
@@ -68,10 +68,10 @@ fineGridSpaces gridStackSize
   = 2^gridStackSize
 
 fineGridShape:: Int -> DIM2
-fineGridShape gridStackSize 
+fineGridShape gridStackSize
   = (Z :. n :. n) where n = 1+fineGridSpaces gridStackSize
 
-writeHeatMapBMP :: String 
+writeHeatMapBMP :: String
                 -> Array U DIM2 Double
                 -> IO()
 writeHeatMapBMP filename arr
@@ -82,7 +82,7 @@ writeHeatMapBMP filename arr
                       $  R.map (rampColorHotToCold minVal maxVal) arr
        writeImageToBMP filename arrImageOut
 
-    
+
 poissonTest :: Int -> String -> IO()
 poissonTest gridStackSize filename =
  let intervals = fineGridSpaces gridStackSize
@@ -90,48 +90,44 @@ poissonTest gridStackSize filename =
      shapeInit = fineGridShape gridStackSize
 
      hInit = distance / fromIntegral intervals
-     
-     boundMask = 
-      fromListUnboxed shapeInit $ concat 
+
+     boundMask =
+      fromListUnboxed shapeInit $ concat
          [edgeRow,
           take ((intervals-1)*(intervals+1)) (cycle mainRow),
           edgeRow
          ]
          where edgeRow = replicate (intervals+1) 0.0
                mainRow = 0.0: replicate (intervals-1) 1.0  Prelude.++ [0.0]
-     
-     coordList = Prelude.map ((hInit*) . fromIntegral) [0..intervals] 
-     
+
+     coordList = Prelude.map ((hInit*) . fromIntegral) [0..intervals]
+
      boundValues =
       fromListUnboxed shapeInit $ concat
-         [Prelude.map (\j -> sin (pi*j)) coordList, 
+         [Prelude.map (\j -> sin (pi*j)) coordList,
           concat $ Prelude.map mainRow $ tail $ init coordList,
           Prelude.map (\j -> exp pi * sin (pi*j) + 0.5*j^2) coordList
-         ] 
+         ]
          where mainRow i = replicate intervals 0.0 Prelude.++ [0.5*i^2]
-     
-     fInit =                        -- negative of RHS of Poisson Equation 
-      fromListUnboxed shapeInit $ concat $ Prelude.map row coordList    
+
+     fInit =                        -- negative of RHS of Poisson Equation
+      fromListUnboxed shapeInit $ concat $ Prelude.map row coordList
       where row i = Prelude.map (item i) coordList
             item i j = -(i^2 + j^2)
 
      exact =
       fromListUnboxed shapeInit $
-      concat $ Prelude.map row coordList    
+      concat $ Prelude.map row coordList
       where row i = Prelude.map (item i) coordList
             item i j = exp (pi*i) * sin (pi*j) + 0.5*i^2*j^2
 
      in
-       do 
+       do
           (arrFinal, t) <- time $ fullMG hInit fInit boundMask boundValues
           putStr (prettyTime t)
-          err :: Array U DIM2 Double 
-              <- computeP 
+          err :: Array U DIM2 Double
+              <- computeP
                  $ R.map abs
                  $ R.zipWith (-) arrFinal exact
           putStrLn $ "max error = " Prelude.++ (show $ foldAllS max 0.0 err)
           writeHeatMapBMP filename arrFinal
-          
-          
-          
-
