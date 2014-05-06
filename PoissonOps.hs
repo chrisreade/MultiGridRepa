@@ -14,26 +14,26 @@ module PoissonOps
 
 where
 
-import Data.Array.Repa				    as R
-import Data.Array.Repa.Stencil			as R
-import Data.Array.Repa.Stencil.Dim2		as R
+import Data.Array.Repa		    as R
+import Data.Array.Repa.Stencil	    as R
+import Data.Array.Repa.Stencil.Dim2 as R
 
-{-# INLINE approxOp #-} 
+{-# INLINE approxOp #-}
 approxOp :: Double
             -> Array U DIM2 Double
             -> Array U DIM2 Double
             -> Array U DIM2 Double
             -> Array U DIM2 Double
-            -> Array (TR PC5) DIM2 Double               
+            -> Array (TR PC5) DIM2 Double
 
 approxOp !h !f !boundMask !boundValues !arr
        =   szipWith (+) boundValues
          $ szipWith (*) boundMask
          $ smap (/4)
          $ szipWith (+) (R.map (*hSq) f )
-         $ mapStencil2 (BoundConst 0) 
+         $ mapStencil2 (BoundConst 0)
             [stencil2|   0 1 0
-                         1 0 1 
+                         1 0 1
                          0 1 0 |] arr
          where hSq = h*h
 
@@ -48,8 +48,8 @@ residualOp !h !f !boundMask !v
        =   szipWith (*) boundMask
          $ szipWith (+) f
          $ smap (*hFactor)
-         $ mapStencil2 (BoundConst 0) 
+         $ mapStencil2 (BoundConst 0)
             [stencil2|   0 1  0
-                         1 -4 1 
+                         1 -4 1
                          0 1  0 |] v
          where hFactor = 1/(h*h)
