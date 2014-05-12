@@ -75,9 +75,9 @@ writeHeatMapBMP :: String
                 -> Array U DIM2 Double
                 -> IO()
 writeHeatMapBMP filename arr
-  = do let maxVal = foldAllS max 0.0 arr
-           minVal = foldAllS min 0.0 arr
-       arrImageOut <- computeP
+  = do !maxVal <- foldAllP max 0.0 arr
+       !minVal <- foldAllP min 0.0 arr
+       !arrImageOut <- computeP
                       $  R.map rgb8OfDouble
                       $  R.map (rampColorHotToCold minVal maxVal) arr
        writeImageToBMP filename arrImageOut

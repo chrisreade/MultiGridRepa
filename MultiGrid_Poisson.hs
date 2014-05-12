@@ -39,7 +39,7 @@ multiGrid :: Monad m =>
 multiGrid !h !f !boundMask !boundValues !uInit
  = if coarsest uInit
    then
-     do computeP $ approxOp h f boundMask boundValues uInit
+     do return $ computeS $ approxOp h f boundMask boundValues uInit
    else
      do v  <- iterateSolver (approxOp h f boundMask boundValues) steps1 uInit
         r  <- computeP $ residualOp h f boundMask v
@@ -61,7 +61,7 @@ fullMG :: Monad m =>
 
 fullMG !h !f !boundMask !boundValues
  = if coarsest boundValues
-     then do computeP $ approxOp h f boundMask boundValues boundValues
+     then do multiGrid h f boundMask boundValues boundValues
      else do
             f' <- computeP $ restrict f
             boundMask' <- computeP $ coarsen boundMask
