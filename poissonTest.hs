@@ -44,10 +44,46 @@ usage	= unlines
 
 
 
-{- Example from p162 Iserles "A First Course in Numerical Analysis of Differential Equations"
-   Values for poisson equation
+poissonTest :: Int -> String -> IO()
+poissonTest gridStackSize filename =
+ let 
+     shapeInit = fineGridShape gridStackSize
+     h  = hInit shapeInit
+     f  = fInit shapeInit 
+     bM = boundMask shapeInit
+     bV = boundValues shapeInit
+     arrAns = exact shapeInit
+  in
+    do 
+      (arrFinal, t) <- time $ fullMG h f bM bV
+      putStr (prettyTime t)
+      err :: Array U DIM2 Double 
+          <- computeP 
+             $ R.map abs
+             $ R.zipWith (-) arrFinal arrAns
+      putStrLn $ "max error = " Prelude.++ (show $ foldAllS max 0.0 err)
+      writeHeatMapBMP filename arrFinal
 
-    >>>> Au = -f <<<<
+writeHeatMapBMP :: String 
+                -> Array U DIM2 Double
+                -> IO()
+writeHeatMapBMP !filename !arr
+  = do !maxVal <- foldAllP max 0.0 arr
+       !minVal <- foldAllP min 0.0 arr
+       !arrImageOut <- computeP
+                       $  R.map rgb8OfDouble
+                       $  R.map (rampColorHotToCold minVal maxVal) arr
+       writeImageToBMP filename arrImageOut
+
+fineGridShape:: Int -> DIM2
+fineGridShape gridStackSize 
+  = (Z :. n :. n) where n = 1+2^gridStackSize
+
+
+{- Example from p162 Iserles "A First Course in Numerical Analysis of Differential Equations"
+   Values for poisson equation 
+    
+    >>>> Au = -f <<<< 
 
    u and f defined on the unit square (u is unknown)
 
@@ -60,74 +96,57 @@ usage	= unlines
    u(1,y) = e^(pi*x) * sin(pi*y) + 1/2 * y^2    for 0<=y<=1
 -}
 
-distance:: Double
-distance = 1.0  --length of sides for square area covered by grids
+distance:: Double -- length of sides for square area covered by grids
+distance = 1.0 
 
-fineGridSpaces:: Int -> Int
-fineGridSpaces gridStackSize
-  = 2^gridStackSize
+hInit :: DIM2 -> Double
+hInit sh = 
+  case sh of
+    (Z:.m:.n) | m==n      -> distance / fromIntegral (m-1) 
+    _         | otherwise -> error "non-square grid shape"
 
-fineGridShape:: Int -> DIM2
-fineGridShape gridStackSize
-  = (Z :. n :. n) where n = 1+fineGridSpaces gridStackSize
+hCoords :: DIM2 -> [Double]
+hCoords sh
+  = Prelude.map ((h*) . fromIntegral) [0..n-1]
+    where
+        (Z :. _ :. n) = sh
+        h = hInit sh
 
-writeHeatMapBMP :: String
-                -> Array U DIM2 Double
-                -> IO()
-writeHeatMapBMP filename arr
-  = do !maxVal <- foldAllP max 0.0 arr
-       !minVal <- foldAllP min 0.0 arr
-       !arrImageOut <- computeP
-                      $  R.map rgb8OfDouble
-                      $  R.map (rampColorHotToCold minVal maxVal) arr
-       writeImageToBMP filename arrImageOut
+boundMask :: DIM2 -> Array U DIM2 Double             
+boundMask sh = 
+  fromListUnboxed sh $ concat 
+     [edgeRow,
+      take ((m-2)*n) (cycle mainRow),
+      edgeRow
+     ]
+     where (Z:.m:.n) = sh
+           edgeRow = replicate n 0.0
+           mainRow = 0.0: replicate (n-2) 1.0  Prelude.++ [0.0]
 
-
-poissonTest :: Int -> String -> IO()
-poissonTest gridStackSize filename =
- let intervals = fineGridSpaces gridStackSize
-
-     shapeInit = fineGridShape gridStackSize
-
-     hInit = distance / fromIntegral intervals
-
-     boundMask =
-      fromListUnboxed shapeInit $ concat
-         [edgeRow,
-          take ((intervals-1)*(intervals+1)) (cycle mainRow),
-          edgeRow
-         ]
-         where edgeRow = replicate (intervals+1) 0.0
-               mainRow = 0.0: replicate (intervals-1) 1.0  Prelude.++ [0.0]
-
-     coordList = Prelude.map ((hInit*) . fromIntegral) [0..intervals]
-
-     boundValues =
-      fromListUnboxed shapeInit $ concat
-         [Prelude.map (\j -> sin (pi*j)) coordList,
-          concat $ Prelude.map mainRow $ tail $ init coordList,
-          Prelude.map (\j -> exp pi * sin (pi*j) + 0.5*j^2) coordList
-         ]
-         where mainRow i = replicate intervals 0.0 Prelude.++ [0.5*i^2]
-
-     fInit =                        -- negative of RHS of Poisson Equation
-      fromListUnboxed shapeInit $ concat $ Prelude.map row coordList
-      where row i = Prelude.map (item i) coordList
+boundValues :: DIM2 -> Array U DIM2 Double        
+boundValues sh =
+  fromListUnboxed sh $ concat
+    [
+     Prelude.map (\j -> sin (pi*j)) coords, 
+     concat $ Prelude.map mainRow $ tail $ init coords,
+     Prelude.map (\j -> exp pi * sin (pi*j) + 0.5*j^2) coords
+    ] 
+    where 
+          coords = hCoords sh
+          mainRow i = replicate (n-1) 0.0 Prelude.++ [0.5*i^2]
+          (Z:._:.n) = sh
+            
+fInit :: DIM2 -> Array U DIM2 Double
+fInit sh =                        -- negative of RHS of Poisson Equation
+  fromListUnboxed sh $ concat $ Prelude.map row coords   
+      where row i = Prelude.map (item i) coords
             item i j = -(i^2 + j^2)
+            coords = hCoords sh
 
-     exact =
-      fromListUnboxed shapeInit $
-      concat $ Prelude.map row coordList
-      where row i = Prelude.map (item i) coordList
-            item i j = exp (pi*i) * sin (pi*j) + 0.5*i^2*j^2
-
-     in
-       do
-          (arrFinal, t) <- time $ fullMG hInit fInit boundMask boundValues
-          putStr (prettyTime t)
-          err :: Array U DIM2 Double
-              <- computeP
-                 $ R.map abs
-                 $ R.zipWith (-) arrFinal exact
-          putStrLn $ "max error = " Prelude.++ (show $ foldAllS max 0.0 err)
-          writeHeatMapBMP filename arrFinal
+exact :: DIM2 -> Array U DIM2 Double
+exact sh =
+  fromListUnboxed sh $ concat $ Prelude.map row coords    
+  where row i = Prelude.map (item i) coords
+        item i j = exp (pi*i) * sin (pi*j) + 0.5*i^2*j^2
+        coords = hCoords sh
+   
