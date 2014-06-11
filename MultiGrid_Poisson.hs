@@ -10,7 +10,6 @@
 {-# OPTIONS_GHC -fno-warn-missing-methods  #-}
 {-# OPTIONS_GHC -fno-warn-orphans          #-}
 
-
 module MultiGrid_Poisson
        (multiGrid,fullMG)
 
@@ -23,10 +22,9 @@ import Data.Array.Repa.Eval         as R
 
 import PoissonOps
 
-
 steps1, steps2 :: Int
-steps1 = 5       -- number of iterations for first step approximation operations
-steps2 = 5       -- number of iterations for last step approximation operations
+steps1 = 5       -- number of iterations for first step approximation
+steps2 = 5       -- number of iterations for last step approximation 
 
 multiGrid :: Monad m =>
              Double
@@ -36,21 +34,22 @@ multiGrid :: Monad m =>
              -> Array U DIM2 Double
              -> m (Array U DIM2 Double)
 
-multiGrid !h !f !boundMask !boundValues !uInit
- = if coarsest uInit
-   then
-     do return $ computeS $ approxOp h f boundMask boundValues uInit
+multiGrid !h !f !boundMask !boundValues !uInit 
+ = let !approxStep = approxOp h f boundMask boundValues in
+   if coarsest uInit
+   then return $ computeS $ approxStep uInit
    else
-     do v  <- iterateSolver (approxOp h f boundMask boundValues) steps1 uInit
-        r  <- computeP $ residualOp h f boundMask v
-        boundMask' <- computeP $ coarsen boundMask
-        r' <- computeP $ szipWith (*) boundMask' $ restrict r
-        let zeros = zeroArray (extent r')
-        err <- multiGrid (2*h) r' boundMask' zeros zeros
-        vC  <- computeP $ szipWith (+) v
-                        $ szipWith (*) boundMask
-                        $ interpolate err
-        iterateSolver (approxOp h f boundMask boundValues) steps2 vC
+     do !v  <- iterateSolver approxStep steps1 uInit
+        !r  <- computeP $ residualOp h f boundMask v
+        !boundMask' <- computeP $ coarsen boundMask
+        !r' <- computeP $ szipWith (*) boundMask'
+                        $ restrict r                            
+        let !zeros = zeroArray (extent r')
+        !err <- multiGrid (2*h) r' boundMask' zeros zeros
+        !vC  <- computeP $ szipWith (+) v  
+                         $ szipWith (*) boundMask 
+                         $ interpolate err
+        iterateSolver approxStep steps2 vC 
 
 fullMG :: Monad m =>
           Double
@@ -61,16 +60,16 @@ fullMG :: Monad m =>
 
 fullMG !h !f !boundMask !boundValues
  = if coarsest boundValues
-     then do multiGrid h f boundMask boundValues boundValues
-     else do
-            f' <- computeP $ restrict f
-            boundMask' <- computeP $ coarsen boundMask
-            boundValues' <- computeP $ coarsen boundValues
-            v'  <- fullMG (2*h) f' boundMask' boundValues'
-            v <- computeP $ szipWith (+) boundValues
-                          $ szipWith (*) boundMask
-                          $ interpolate v'
-            multiGrid h f boundMask boundValues v
+   then multiGrid h f boundMask boundValues boundValues
+   else 
+     do !f' <- computeP $ restrict f
+        !boundMask' <- computeP $ coarsen boundMask
+        !boundValues' <- computeP $ coarsen boundValues
+        !v'  <- fullMG (2*h) f' boundMask' boundValues'  
+        !v <- computeP $ szipWith (+) boundValues  
+                       $ szipWith (*) boundMask 
+                       $ interpolate v'
+        multiGrid h f boundMask boundValues v
 
 
 {-# INLINE coarsest #-}
@@ -120,35 +119,40 @@ restrict !arr
 
 {-# INLINE coarsen #-}
 coarsen :: Source r a => Array r DIM2 a -> Array D DIM2 a
-coarsen !arr = traverse arr   -- i+1 and j+1 to deal with odd extents correctly
-                        (\ (e :. i :. j) -> (e :. (i+1) `div` 2 :. (j+1) `div` 2))
-                        (\get (e :. i :. j) -> get (e :. 2*i :. 2*j))
-
+coarsen !arr 
+  = traverse arr   -- i+1 and j+1 to deal with odd extents correctly
+             (\ (e :. i :. j) -> (e :. (i+1) `div` 2 :. (j+1) `div` 2))
+             (\get (e :. i :. j) -> get (e :. 2*i :. 2*j))
 
 {-# INLINE inject4 #-}
 inject4 :: Source r a => Array r DIM2 a -> Array D DIM2 a
-inject4 !arr = traverse arr -- mod 2s deal with odd extents
-                        (\ (e :. i :. j) -> (e :. 2*i - (i `mod` 2) :. 2*j - (j `mod` 2)))
-                        (\get (e :. i :. j) -> get(e :. i `div` 2 :. j `div` 2))
+inject4 !arr 
+  = traverse arr -- mod 2s deal with odd extents
+             (\ (e :. i :. j) -> (e :. 2*i - (i `mod` 2) :. 2*j - (j `mod` 2)))
+             (\get (e :. i :. j) -> get(e :. i `div` 2 :. j `div` 2))
 
 {-# INLINE interpolate #-}
 interpolate :: Array U DIM2 Double -> Array D DIM2 Double
-interpolate !arr
+interpolate !arr 
    | odd m && odd n
-       = traverse arr
-                  (\ (e :. i :. j) -> (e :. 2*i - (i `mod` 2) :. 2*j - (j `mod` 2)))
-                  (\get (e :. i :. j) -> case () of
-                   _ | even i && even j     -> get(e :. i `div` 2 :. j `div` 2)
-                     | even i               -> (0.5)*(get(e :. i `div` 2 :. j `div` 2)
-                                                      + get(e :. i `div` 2 :. (j `div` 2)+1))
-                      -- odd i
-                     | even j               -> (0.5)*(get(e :. i `div` 2 :. j `div` 2)
-                                                      + get(e :. (i `div` 2)+1 :. j `div` 2))
-                      -- odd i and j
-                     | otherwise            -> (0.25)*(get(e :. i `div` 2 :. j `div` 2)
-                                                      + get(e :. i `div` 2 :. (j `div` 2)+1)
-                                                      + get(e :. (i `div` 2)+1 :. j `div` 2)
-                                                      + get(e :. (i `div` 2)+1 :. (j `div` 2)+1))
-                    )
+       = traverse arr 
+           (\ (e :. i :. j) -> (e :. 2*i - (i `mod` 2) :. 2*j - (j `mod` 2)))
+           (\get (e :. i :. j) -> 
+            let i2 = i `div` 2 
+                j2 = j `div` 2 
+            in case () of
+            _ | even i && even j -> get(e :. i2 :. j2)
+            
+              | even i           -> (0.5)*(  get(e :. i2 :. j2)
+                                           + get(e :. i2 :. j2+1)) 
+                -- odd i
+              | even j           -> (0.5)*(  get(e :. i2   :. j2)
+                                           + get(e :. i2+1 :. j2)) 
+                -- odd i and j
+              | otherwise        -> (0.25)*(  get(e :. i2   :. j2)
+                                            + get(e :. i2   :. j2+1)
+                                            + get(e :. i2+1 :. j2)
+                                            + get(e :. i2+1 :. j2+1))
+           )
    | otherwise = inject4 arr
   where _ :. n :. m = extent arr
